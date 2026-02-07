@@ -1,0 +1,197 @@
+<!DOCTYPE html><html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MHT-CET Mock Test App</title>
+  <style>
+    body{font-family:Arial;background:#0f172a;color:#e5e7eb;margin:0}
+    header{background:#020617;padding:14px 20px;font-size:20px;font-weight:bold;display:flex;justify-content:space-between;align-items:center}
+    .tabs button{margin-right:6px}
+    .container{max-width:1000px;margin:auto;padding:20px}
+    .card{background:#020617;border-radius:14px;padding:20px;box-shadow:0 10px 25px rgba(0,0,0,.4)}
+    .question{font-size:18px;margin-bottom:12px}
+    .option{background:#1e293b;padding:10px;border-radius:8px;margin:8px 0;cursor:pointer}
+    .option.selected{background:#2563eb}
+    .option.correct{background:green}
+    .option.wrong{background:red}
+    button{background:#2563eb;border:none;color:#fff;padding:10px 16px;border-radius:8px;cursor:pointer;margin:6px 4px}
+    button.secondary{background:#475569}
+    .timer{color:#38bdf8}
+    .review{color:#facc15;font-size:14px}
+    .mode-select{text-align:center;margin:20px}
+    .popup{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1e293b;padding:20px;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,.6);display:none;z-index:100;color:#fff;}
+    .dashboard{display:none;}
+    .bar{height:16px;background:#2563eb;border-radius:6px;}
+  </style>
+</head>
+<body><div class="mode-select" id="modeSelect">
+  <h2>Choose Mode</h2>
+  <button onclick="startExamMode()">Exam Mode</button>
+  <button onclick="startPracticeMode()">Practice Mode</button>
+</div><header style="display:none" id="header">
+  <div>MHT-CET Mock Test</div>
+  <div class="timer" id="timer">90:00</div>
+</header><div class="container">
+  <div class="card" id="quiz" style="display:none">
+    <div class="question" id="question"></div>
+    <div id="options"></div>
+    <div class="review" id="reviewTag"></div>
+    <button onclick="markReview()" class="secondary">Mark for Review</button>
+    <button onclick="nextQuestion()" id="nextBtn">Next</button>
+  </div>  <div class="card" id="result" style="display:none">
+    <h2>Result & Analysis 📊</h2>
+    <p id="score"></p>
+    <p id="analysis"></p>
+    <button onclick="location.reload()">Restart</button>
+    <button onclick="showDashboard()">View Dashboard</button>
+  </div>  <div class="card dashboard" id="dashboard">
+    <h2>Progress Dashboard</h2>
+    <p id="testsAttempted"></p>
+    <p id="bestScore"></p>
+    <p id="avgScore"></p>
+    <p id="overallAccuracy"></p>
+    <p>Subject-wise Accuracy:</p>
+    <p>Physics <div class="bar" id="phyBar"></div></p>
+    <p>Chemistry <div class="bar" id="chemBar"></div></p>
+    <p>Maths <div class="bar" id="mathBar"></div></p>
+  </div>
+</div><div class="popup" id="popup"></div><script>
+// Sample DB, extend with more questions
+const db={
+ P:[{q:'SI unit of current?',o:['Volt','Ampere','Ohm','Watt'],a:1},{q:'Dimensional formula of force?',o:['MLT^-2','ML^2T^-2','MLT^-1','M^2LT^-2'],a:0}],
+ C:[{q:'Laughing gas?',o:['CO2','N2O','O2','NH3'],a:1},{q:'pH of pure water?',o:['5','6','7','8'],a:2}],
+ M:[{q:'d/dx(sin x)=?',o:['cos x','-cos x','sin x','-sin x'],a:0},{q:'Value of log10(100)?',o:['1','2','10','0'],a:1}]
+};
+
+let fullMock=[],section='P',i=0,score=0,attempt=0,review=new Set(),mode='';
+let practiceMode=false;
+let timerSec=5400,timerInterval=null;
+
+// Local Storage keys
+const LS_PROGRESS='cetProgress';
+
+function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]]}}
+
+// ================= Mode Selection =================
+function startExamMode(){
+  mode='exam'; practiceMode=false;
+  fullMock=[...db.P,...db.C,...db.M]; shuffle(fullMock);
+  i=0; score=0; attempt=0; review.clear();
+  document.getElementById('modeSelect').style.display='none';
+  document.getElementById('header').style.display='flex';
+  document.getElementById('quiz').style.display='block';
+  startTimer();
+  loadQ();
+  restoreProgress();
+}
+
+function startPracticeMode(){
+  mode='practice'; practiceMode=true;
+  fullMock=[...db.P,...db.C,...db.M]; shuffle(fullMock);
+  i=0; score=0; attempt=0; review.clear();
+  document.getElementById('modeSelect').style.display='none';
+  document.getElementById('header').style.display='flex';
+  document.getElementById('quiz').style.display='block';
+  loadQ();
+}
+
+// ================= Timer =================
+function startTimer(){
+  if(timerInterval) clearInterval(timerInterval);
+  timerInterval=setInterval(()=>{
+    if(timerSec>0){
+      timerSec--;
+      const m=Math.floor(timerSec/60),s=timerSec%60;
+      document.getElementById('timer').innerText=`${m}:${s.toString().padStart(2,'0')}`;
+      saveProgress();
+    } else {finish();}
+  },1000);
+}
+
+// ================= Load Question =================
+function loadQ(){
+ const q=fullMock[i];
+ document.getElementById('question').innerText=`Q${i+1}. ${q.q}`;
+ const odiv=document.getElementById('options'); odiv.innerHTML='';
+ q.o.forEach((t,idx)=>{
+   const d=document.createElement('div'); d.className='option'; d.innerText=t;
+   d.onclick=()=>select(idx,d,q); odiv.appendChild(d);
+ });
+ document.getElementById('reviewTag').innerText=review.has(i)?'⚠ Marked for review':'';
+ document.getElementById('nextBtn').style.display=practiceMode?'none':'inline-block';
+}
+
+// ================= Select Option =================
+function select(idx,el,q){
+ attempt++;
+ if(practiceMode){
+   if(idx===q.a){el.classList.add('correct');} else {el.classList.add('wrong'); showPopup(`Wrong! Correct: ${q.o[q.a]}`);}
+   document.getElementById('nextBtn').style.display='inline-block';
+ } else { // Exam Mode
+   if(idx===q.a) score+=1; else score-=0.25;
+   nextQuestion();
+ }
+ saveProgress();
+}
+
+function nextQuestion(){ i++; if(i<fullMock.length) loadQ(); else finish();}
+
+function markReview(){review.add(i); document.getElementById('reviewTag').innerText='⚠ Marked for review'; saveProgress();}
+
+function showPopup(text){
+  const p=document.getElementById('popup');
+  p.innerText=text; p.style.display='block';
+}
+
+document.getElementById('nextBtn').onclick=function(){document.getElementById('popup').style.display='none'; nextQuestion();}
+
+// ================= Finish Test =================
+function finish(){
+  if(timerInterval) clearInterval(timerInterval);
+  document.getElementById('quiz').style.display='none';
+  document.getElementById('result').style.display='block';
+  document.getElementById('score').innerText=`Score: ${score}`;
+  document.getElementById('analysis').innerText=`Attempted: ${attempt}, Marked for review: ${review.size}`;
+  updateProgressTracker();
+  localStorage.removeItem('examProgress');
+}
+
+// ================= Progress Tracker =================
+function saveProgress(){
+  if(mode==='exam'){
+    const data={i,score,attempt,review:[...review],timerSec};
+    localStorage.setItem('examProgress',JSON.stringify(data));
+  }
+}
+
+function restoreProgress(){
+  const data=JSON.parse(localStorage.getItem('examProgress'));
+  if(data){i=data.i; score=data.score; attempt=data.attempt; review=new Set(data.review); timerSec=data.timerSec;}
+}
+
+let progress={tests:[]};
+if(localStorage.getItem(LS_PROGRESS)) progress=JSON.parse(localStorage.getItem(LS_PROGRESS));
+
+function updateProgressTracker(){
+  const testData={score,attempts:attempt,phy:50,chem:50,math:50}; // Extend with real stats
+  progress.tests.push(testData);
+  localStorage.setItem(LS_PROGRESS,JSON.stringify(progress));
+}
+
+function showDashboard(){
+  document.getElementById('result').style.display='none';
+  document.getElementById('dashboard').style.display='block';
+  document.getElementById('testsAttempted').innerText=`Tests Attempted: ${progress.tests.length}`;
+  const best=Math.max(...progress.tests.map(t=>t.score));
+  document.getElementById('bestScore').innerText=`Best Score: ${best}`;
+  const avg=(progress.tests.reduce((a,t)=>a+t.score,0)/progress.tests.length).toFixed(2);
+  document.getElementById('avgScore').innerText=`Average Score: ${avg}`;
+  const overallAcc=(progress.tests.reduce((a,t)=>a+t.phy+t.chem+t.math,0)/ (progress.tests.length*150)*100).toFixed(2)+'%';
+  document.getElementById('overallAccuracy').innerText=`Overall Accuracy: ${overallAcc}`;
+  // Simple bars
+  document.getElementById('phyBar').style.width='70%';
+  document.getElementById('chemBar').style.width='80%';
+  document.getElementById('mathBar').style.width='60%';
+}
+</script></body>
+</html>
